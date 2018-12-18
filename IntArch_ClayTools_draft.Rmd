@@ -57,7 +57,7 @@ names(dat) <- gsub("RDi", "Dif", names(dat))
 names(dat) <- gsub("[.]", ",", names(dat))
 
 
-# ethan can you add a comment to help me understand this line?
+# removes the memory check questions from the dataset
 dat.copy <- dat %>%
   select(-c(grep("Ha", names(dat)), grep("Ro", names(dat)), grep("Bo", names(dat)), ends_with(match = "H", vars = names(dat)), ends_with(match = "R", vars = names(dat)), ends_with(match = "B", vars = names(dat)))) %>%
   select(1:24)
@@ -94,6 +94,7 @@ model.full = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodCh
   }
   
   # Error parameter: If you are trying to copy, how likely is it that you make a mistake and choose a different piece?
+  # TO DO: how to set this param? MLE too?
   errorRate <- .03
  
   # in this scheme, RodIsDiff and HandleIsDiff are logicals (0/1, or T/F)
@@ -118,6 +119,7 @@ model.full = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodCh
                                    (1-HandleIsDiff) * (1/HandleChoices))
 
   # rod, then handle
+  # change dot notation to camel case
   adjusted.likelihoodIfCopyingAll        <- priorCopy     * priorCopy     * likelihoodIfCopyingAll
   adjusted.likelihoodIfCopyingHandleOnly <- (1-priorCopy) * priorCopy     * likelihoodIfCopyingHandleOnly
   adjusted.likelihoodIfCopyingRodOnly    <- priorCopy     * (1-priorCopy) * likelihoodIfCopyingRodOnly
