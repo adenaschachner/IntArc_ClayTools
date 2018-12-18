@@ -18,7 +18,7 @@ library(pbapply)
 
 ```{r data cleaning}
 
-dat <- read.csv("/Users/ethan/Downloads/IntArch_TestData.csv", stringsAsFactors = F)
+dat <- read.csv("IntArch_TestData.csv", stringsAsFactors = F)
 
 #Filter out data to be excluded:
 
@@ -46,19 +46,18 @@ dat <- read.csv("/Users/ethan/Downloads/IntArch_TestData.csv", stringsAsFactors 
 # dat %>%
 #   filter(`timing_Page,Submit` <= (mean(dat$`timing_Page,Submit`) + sd(dat$`timing_Page,Submit`)))
 
-
+# remove extra qualtrics headers, and columns that are non-data (dates, times, etc)
 dat <- dat[-(1:2),-(1:18)]
 
+# make the column names more meaningful
 names(dat) <- gsub("HId", "Iden", names(dat))
-
 names(dat) <- gsub("RId", "Iden", names(dat))
-
 names(dat) <- gsub("HDi", "Dif", names(dat))
-
 names(dat) <- gsub("RDi", "Dif", names(dat))
-
 names(dat) <- gsub("[.]", ",", names(dat))
 
+
+# ethan can you add a comment to help me understand this line?
 dat.copy <- dat %>%
   select(-c(grep("Ha", names(dat)), grep("Ro", names(dat)), grep("Bo", names(dat)), ends_with(match = "H", vars = names(dat)), ends_with(match = "R", vars = names(dat)), ends_with(match = "B", vars = names(dat)))) %>%
   select(1:24)
@@ -69,14 +68,18 @@ dat.copy <- cbind(PID = 1:nrow(dat.copy), dat.copy)
 ##Tidy data
 
 ```{r tidy the data}
-dat.copy2 = dat.copy %>%
+dat.copy2 <- dat.copy %>%
   gather(condition, Result,-PID) %>%
   separate(condition, c('Box', 'HandleSimilarity', 'RodSimilarity', 'HandleChoices', 'RodChoices'),',') %>%
   mutate(HandleChoices = as.numeric(HandleChoices),
-         RodChoices = as.numeric(RodChoices)) %>%
+         RodChoices = as.numeric(RodChoices),
+         Box = as.factor(Box),
+         HandleSimilarity = HandleSimilarity == 'Iden',
+         RodSimilarity = RodSimilarity == 'Iden',
+         JudgedCopied = Result == 'Someone copied.') %>%
   filter(Result != "")
-```
 
+```
 
 #Model creation
 
@@ -84,42 +87,48 @@ dat.copy2 = dat.copy %>%
 
 ```{r full model}
 model.full = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoices, priorCopy, Response){
-  
+ 
+  # Take into account the physical constraints of the box - for StarBox, there's only 1 option that works.
   if(Box == 'Star'){
     RodChoices <- 1
   }
   
-  if(HandleSimilarity == 'Dif' & RodSimilarity == 'Dif'){
-    likeCopy.all <- 0.00000000001
-    likeCopy.HandleOnly <- 0.00000000001
-    likeCopy.RodOnly <- 0.00000000001
-    likelihoodIndep <- ((RodChoices-1)/RodChoices) * ((HandleChoices-1)/HandleChoices)
-  } else if(HandleSimilarity == 'Dif' & RodSimilarity == 'Iden'){
-    likeCopy.all <- 0.00000000001
-    likeCopy.HandleOnly <- 0.00000000001
-    likeCopy.RodOnly <- 1 * ((HandleChoices-1)/HandleChoices)
-    likelihoodIndep <- (1/RodChoices) * ((HandleChoices-1)/HandleChoices)
-  } else if(HandleSimilarity == 'Iden' & RodSimilarity == 'Dif'){
-    likeCopy.all <- 0.00000000001
-    likeCopy.HandleOnly <- ((RodChoices-1)/RodChoices) * 1
-    likeCopy.RodOnly <- 0.000000000010
-    likelihoodIndep <- ((RodChoices-1)/RodChoices) * (1/HandleChoices)
-  } else if(HandleSimilarity == 'Iden' & RodSimilarity == 'Iden'){
-    likeCopy.all <- 1
-    likeCopy.HandleOnly <- (1/RodChoices) * 1
-    likeCopy.RodOnly <- 1 * (1/HandleChoices)
-    likelihoodIndep <- (1/RodChoices) * (1/HandleChoices)
-  }
-  adjusted.likeCopy.all <- priorCopy * priorCopy * likeCopy.all
-  adjusted.likeCopy.HandleOnly <- (1 - priorCopy) * priorCopy * likeCopy.HandleOnly
-  adjusted.likeCopy.RodOnly <- priorCopy * (1 - priorCopy) * likeCopy.RodOnly
-  adjusted.likelihoodIndep <- (1 - priorCopy) * (1 - priorCopy) * likelihoodIndep
+  # Error parameter: If you are trying to copy, how likely is it that you make a mistake and choose a different piece?
+  errorRate <- .03
+ 
+  # in this scheme, RodIsDiff and HandleIsDiff are logicals (0/1, or T/F)
+  likelihoodIfCopyingHandleOnly <- ((RodIsDiff)     * ((RodChoices-1)/RodChoices) + # if rod is different
+                                    (1-RodIsDiff)   * (1/RodChoices)) *             # if rod is the same
+                                   ((HandleIsDiff)  * errorRate +                   # if handle is different
+                                    (1-HandleIsDiff)* (1-errorRate))                # if handle is the same
   
-  sum.adjusted.likeCopy <- adjusted.likeCopy.all + adjusted.likeCopy.HandleOnly + adjusted.likeCopy.RodOnly
+  likelihoodIfCopyingRodOnly <-   ((RodIsDiff)      * errorRate +
+                                   (1-RodIsDiff)    * (1-errorRate)) *
+                                  ((HandleIsDiff)   * ((HandleChoices-1)/HandleChoices) + 
+                                   (1-HandleIsDiff) * (1/HandleChoices))
   
-  posterior.copying <- sum.adjusted.likeCopy / (adjusted.likelihoodIndep + sum.adjusted.likeCopy)
-  posterior.indep <- adjusted.likelihoodIndep / (adjusted.likelihoodIndep + sum.adjusted.likeCopy)
+  likelihoodIfCopyingAll <-       ((RodIsDiff)      * errorRate +
+                                   (1-RodIsDiff)    * (1-errorRate)) *
+                                  ((HandleIsDiff)   * errorRate +
+                                   (1-HandleIsDiff) * (1-errorRate))
   
+  likelihoodIfNoCopying <-        ((RodIsDiff)      * ((RodChoices-1)/RodChoices) +
+                                   (1-RodIsDiff)    * (1/RodChoices)) *
+                                  ((HandleIsDiff)   * ((HandleChoices-1)/HandleChoices) +
+                                   (1-HandleIsDiff) * (1/HandleChoices))
+
+  # rod, then handle
+  adjusted.likelihoodIfCopyingAll        <- priorCopy     * priorCopy     * likelihoodIfCopyingAll
+  adjusted.likelihoodIfCopyingHandleOnly <- (1-priorCopy) * priorCopy     * likelihoodIfCopyingHandleOnly
+  adjusted.likelihoodIfCopyingRodOnly    <- priorCopy     * (1-priorCopy) * likelihoodIfCopyingRodOnly
+  adjusted.likelihoodIfNoCopying         <- (1-priorCopy) * (1-priorCopy) * likelihoodIfNoCopying
+  
+  sum.adjusted.likeCopy <- adjusted.likelihoodIfCopyingAll + 
+                           adjusted.likelihoodIfCopyingHandleOnly + 
+                           adjusted.likelihoodIfCopyingRodOnly
+  
+  posterior.copying <- sum.adjusted.likeCopy          / (adjusted.likelihoodIfNoCopying + sum.adjusted.likeCopy)
+  posterior.indep   <- adjusted.likelihoodIfNoCopying / (adjusted.likelihoodIfNoCopying + sum.adjusted.likeCopy)
   
   if(Response == "Someone copied."){
     return(posterior.copying)
@@ -134,32 +143,32 @@ model.full = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodCh
 ```{r ignore star constraint model}
 model.ISC = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoices, priorCopy, Response){
   if(HandleSimilarity == 'Dif' & RodSimilarity == 'Dif'){
-    likeCopy.all <- 0.00000000001
-    likeCopy.HandleOnly <- 0.00000000001
-    likeCopy.RodOnly <- 0.00000000001
+    likelihoodIfCopyingAll <- 0.00000000001
+    likelihoodIfCopyingHandleOnly <- 0.00000000001
+    likelihoodIfCopyingRodOnly <- 0.00000000001
     likelihoodIndep <- ((RodChoices-1)/RodChoices) * ((HandleChoices-1)/HandleChoices)
   } else if(HandleSimilarity == 'Dif' & RodSimilarity == 'Iden'){
-    likeCopy.all <- 0.00000000001
-    likeCopy.HandleOnly <- 0.00000000001
-    likeCopy.RodOnly <- 1 * ((HandleChoices-1)/HandleChoices)
+    likelihoodIfCopyingAll <- 0.00000000001
+    likelihoodIfCopyingHandleOnly <- 0.00000000001
+    likelihoodIfCopyingRodOnly <- 1 * ((HandleChoices-1)/HandleChoices)
     likelihoodIndep <- (1/RodChoices) * ((HandleChoices-1)/HandleChoices)
   } else if(HandleSimilarity == 'Iden' & RodSimilarity == 'Dif'){
-    likeCopy.all <- 0.00000000001
-    likeCopy.HandleOnly <- ((RodChoices-1)/RodChoices) * 1
-    likeCopy.RodOnly <- 0.00000000001
+    likelihoodIfCopyingAll <- 0.00000000001
+    likelihoodIfCopyingHandleOnly <- ((RodChoices-1)/RodChoices) * 1
+    likelihoodIfCopyingRodOnly <- 0.00000000001
     likelihoodIndep <- ((RodChoices-1)/RodChoices) * (1/HandleChoices)
   } else if(HandleSimilarity == 'Iden' & RodSimilarity == 'Iden'){
-    likeCopy.all <- 1
-    likeCopy.HandleOnly <- (1/RodChoices) * 1
-    likeCopy.RodOnly <- 1 * (1/HandleChoices)
+    likelihoodIfCopyingAll <- 1
+    likelihoodIfCopyingHandleOnly <- (1/RodChoices) * 1
+    likelihoodIfCopyingRodOnly <- 1 * (1/HandleChoices)
     likelihoodIndep <- (1/RodChoices) * (1/HandleChoices)
   }
-  adjusted.likeCopy.all <- priorCopy * priorCopy * likeCopy.all
-  adjusted.likeCopy.HandleOnly <- (1 - priorCopy) * priorCopy * likeCopy.HandleOnly
-  adjusted.likeCopy.RodOnly <- priorCopy * (1 - priorCopy) * likeCopy.RodOnly
+  adjusted.likelihoodIfCopyingAll <- priorCopy * priorCopy * likelihoodIfCopyingAll
+  adjusted.likelihoodIfCopyingHandleOnly <- (1 - priorCopy) * priorCopy * likelihoodIfCopyingHandleOnly
+  adjusted.likelihoodIfCopyingRodOnly <- priorCopy * (1 - priorCopy) * likelihoodIfCopyingRodOnly
   adjusted.likelihoodIndep <- (1 - priorCopy) * (1 - priorCopy) * likelihoodIndep
   
-  sum.adjusted.likeCopy <- adjusted.likeCopy.all + adjusted.likeCopy.HandleOnly + adjusted.likeCopy.RodOnly
+  sum.adjusted.likeCopy <- adjusted.likelihoodIfCopyingAll + adjusted.likelihoodIfCopyingHandleOnly + adjusted.likelihoodIfCopyingRodOnly
   
   posterior.copying <- sum.adjusted.likeCopy / (adjusted.likelihoodIndep + sum.adjusted.likeCopy)
   posterior.indep <- adjusted.likelihoodIndep / (adjusted.likelihoodIndep + sum.adjusted.likeCopy)
