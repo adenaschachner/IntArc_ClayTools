@@ -74,8 +74,8 @@ dat.copy2 <- dat.copy %>%
   mutate(HandleChoices = as.numeric(HandleChoices),
          RodChoices = as.numeric(RodChoices),
          Box = as.factor(Box),
-         HandleSimilarity = HandleSimilarity == 'Iden',
-         RodSimilarity = RodSimilarity == 'Iden',
+         HandleIsDiff = HandleSimilarity == 'Dif', # check that this actually is the right string
+         RodIsDiff = RodSimilarity == 'Dif',
          JudgedCopied = Result == 'Someone copied.') %>%
   filter(Result != "")
 
@@ -197,7 +197,7 @@ copy.llh.full = function(priorCopy){
 }
 ```
 
-##Run mle() to find best prior and the likelihood
+##Run mle() to find best prior and the likelihood of that prior
 
 ```{r Full model mle}
 #cannot use 0 and 1 because it will result in (NaN)
