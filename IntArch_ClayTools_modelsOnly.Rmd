@@ -100,7 +100,7 @@ ModelFull = function(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoic
 ##Ignores star constraint (ISC) model- does not take into account constraints of the puzzle box
 
 ```{r ignore star constraint model}
-ModelISC = function(Box, HandleSimilarity, RodSimilarity, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate){
+ModelISC = function(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate){
 
     # Note that in contrast to the full model, this model does not adjust the value of NumRodChoices to take into account the StarBox constraint.
   
