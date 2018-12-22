@@ -69,65 +69,55 @@ DatCopy <- cbind(PID = 1:nrow(DatCopy), DatCopy)
 
 ```{r tidy the data}
 DatCopy2 <- DatCopy %>%
-  gather(condition, Result,-PID) %>%
-  separate(condition, c('Box', 'HandleSimilarity', 'RodSimilarity', 'HandleChoices', 'RodChoices'),',') %>%
-  mutate(HandleChoices = as.numeric(HandleChoices),
-         RodChoices = as.numeric(RodChoices),
+  gather(condition, Response,-PID) %>%
+  separate(condition, c('Box', 'HandleSimilarity', 'RodSimilarity', 'NumHandleChoices', 'NumRodChoices'),',') %>%
+  mutate(NumHandleChoices = as.numeric(NumHandleChoices),
+         NumRodChoices = as.numeric(NumRodChoices),
          Box = as.factor(Box),
          HandleIsDiff = HandleSimilarity == 'Dif', # check that this actually is the right string
          RodIsDiff = RodSimilarity == 'Dif',
-         JudgedCopied = Result == 'Someone copied.') %>%
-  filter(Result != "")
+         JudgedCopied = Response == 'Someone copied.') %>%
+  filter(Response != "")
 
 ```
 
 #Model creation
 
-##full model
+##model base
 
-```{r full model}
-ModelFull = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoices, priorCopy, Response){
- 
-  # Take into account the physical constraints of the box - for StarBox, there's only 1 option that works.
-  if(Box == 'Star'){
-    RodChoices <- 1
-  }
+```{r model base}
+ModelBase = function(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate){
   
-  # Error parameter: If you are trying to copy, how likely is it that you make a mistake and choose a different piece?
-  # TO DO: how to set this param? MLE too?
-  errorRate <- .03
- 
-  # in this scheme, RodIsDiff and HandleIsDiff are logicals (0/1, or T/F)
-  likelihoodIfCopyingHandleOnly <- ((RodIsDiff)     * ((RodChoices-1)/RodChoices) + # if rod is different
-                                    (1-RodIsDiff)   * (1/RodChoices)) *             # if rod is the same
-                                   ((HandleIsDiff)  * errorRate +                   # if handle is different
-                                    (1-HandleIsDiff)* (1-errorRate))                # if handle is the same
+  # RodIsDiff and HandleIsDiff are logicals (0/1, or T/F)
+  likelihoodIfCopyingHandleOnly <- ((RodIsDiff) * ((NumRodChoices-1)/NumRodChoices) + # if rod is different 
+                                    (1-RodIsDiff) * (1/NumRodChoices)) * # if rod is the same
+                                    ((HandleIsDiff) * errorRate +         # if handle is different
+                                    (1-HandleIsDiff) * (1-errorRate))    # if handle is the same
   
   likelihoodIfCopyingRodOnly <-   ((RodIsDiff)      * errorRate +
                                    (1-RodIsDiff)    * (1-errorRate)) *
-                                  ((HandleIsDiff)   * ((HandleChoices-1)/HandleChoices) + 
-                                   (1-HandleIsDiff) * (1/HandleChoices))
+                                  ((HandleIsDiff)   * ((NumHandleChoices-1)/NumHandleChoices) + 
+                                   (1-HandleIsDiff) * (1/NumHandleChoices))
   
   likelihoodIfCopyingAll <-       ((RodIsDiff)      * errorRate +
                                    (1-RodIsDiff)    * (1-errorRate)) *
                                   ((HandleIsDiff)   * errorRate +
                                    (1-HandleIsDiff) * (1-errorRate))
   
-  likelihoodIfNoCopying <-        ((RodIsDiff)      * ((RodChoices-1)/RodChoices) +
-                                   (1-RodIsDiff)    * (1/RodChoices)) *
-                                  ((HandleIsDiff)   * ((HandleChoices-1)/HandleChoices) +
-                                   (1-HandleIsDiff) * (1/HandleChoices))
+  likelihoodIfNoCopying <-        ((RodIsDiff)      * ((NumRodChoices-1)/NumRodChoices) +
+                                   (1-RodIsDiff)    * (1/NumRodChoices)) *
+                                  ((HandleIsDiff)   * ((NumHandleChoices-1)/NumHandleChoices) +
+                                   (1-HandleIsDiff) * (1/NumHandleChoices))
 
-  # rod, then handle
-  # change dot notation to camel case
+  # priors here are specified as rod, then handle
   AdjustedLikelihoodIfCopyingAll        <- priorCopy     * priorCopy     * likelihoodIfCopyingAll
   AdjustedLikelihoodIfCopyingHandleOnly <- (1-priorCopy) * priorCopy     * likelihoodIfCopyingHandleOnly
   AdjustedLikelihoodIfCopyingRodOnly    <- priorCopy     * (1-priorCopy) * likelihoodIfCopyingRodOnly
   AdjustedLikelihoodIfNoCopying         <- (1-priorCopy) * (1-priorCopy) * likelihoodIfNoCopying
   
   SumAdjustedLikeCopy <- AdjustedLikelihoodIfCopyingAll + 
-                           AdjustedLikelihoodIfCopyingHandleOnly + 
-                           AdjustedLikelihoodIfCopyingRodOnly
+    AdjustedLikelihoodIfCopyingHandleOnly + 
+    AdjustedLikelihoodIfCopyingRodOnly
   
   PosteriorCopying <- SumAdjustedLikeCopy / (AdjustedLikelihoodIfNoCopying + SumAdjustedLikeCopy)
   PosteriorNoCopying <- AdjustedLikelihoodIfNoCopying / (AdjustedLikelihoodIfNoCopying + SumAdjustedLikeCopy)
@@ -138,57 +128,33 @@ ModelFull = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodCho
     return(PosteriorNoCopying)
   }
 }
+
 ```
 
-##model that ignores star constraint (ISC):
+## Full model- takes into account constraints of the puzzle box, as well as number of available choices to build with
+
+```{r full model}
+
+ModelFull = function(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate){
+ 
+  # Take into account the physical constraints of the box: For StarBox, there's only 1 rod option that works. (All handle options always work, on both boxes. For circle box, all rod options work.)
+  if(Box == 'Star'){
+    NumRodChoices <- 1
+  }
+  
+  ModelBase(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate)
+}
+```
+
+##Ignores star constraint (ISC) model- does not take into account constraints of the puzzle box
 
 ```{r ignore star constraint model}
-ModelISC = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoices, priorCopy, Response){
+ModelISC = function(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate){
 
-  # Error parameter: If you are trying to copy, how likely is it that you make a mistake and choose a different piece?
-  # TO DO: how to set this param? MLE too?
-  errorRate <- .03
- 
-  # in this scheme, RodIsDiff and HandleIsDiff are logicals (0/1, or T/F)
-  likelihoodIfCopyingHandleOnly <- ((RodIsDiff)     * ((RodChoices-1)/RodChoices) + # if rod is different
-                                    (1-RodIsDiff)   * (1/RodChoices)) *             # if rod is the same
-                                   ((HandleIsDiff)  * errorRate +                   # if handle is different
-                                    (1-HandleIsDiff)* (1-errorRate))                # if handle is the same
+    # Note that in contrast to the full model, this model does not adjust the value of NumRodChoices to take into account the StarBox constraint.
   
-  likelihoodIfCopyingRodOnly <-   ((RodIsDiff)      * errorRate +
-                                   (1-RodIsDiff)    * (1-errorRate)) *
-                                  ((HandleIsDiff)   * ((HandleChoices-1)/HandleChoices) + 
-                                   (1-HandleIsDiff) * (1/HandleChoices))
-  
-  likelihoodIfCopyingAll <-       ((RodIsDiff)      * errorRate +
-                                   (1-RodIsDiff)    * (1-errorRate)) *
-                                  ((HandleIsDiff)   * errorRate +
-                                   (1-HandleIsDiff) * (1-errorRate))
-  
-  likelihoodIfNoCopying <-        ((RodIsDiff)      * ((RodChoices-1)/RodChoices) +
-                                   (1-RodIsDiff)    * (1/RodChoices)) *
-                                  ((HandleIsDiff)   * ((HandleChoices-1)/HandleChoices) +
-                                   (1-HandleIsDiff) * (1/HandleChoices))
+    ModelBase(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate)
 
-  # rod, then handle
-  # change dot notation to camel case
-  AdjustedLikelihoodIfCopyingAll        <- priorCopy     * priorCopy     * likelihoodIfCopyingAll
-  AdjustedLikelihoodIfCopyingHandleOnly <- (1-priorCopy) * priorCopy     * likelihoodIfCopyingHandleOnly
-  AdjustedLikelihoodIfCopyingRodOnly    <- priorCopy     * (1-priorCopy) * likelihoodIfCopyingRodOnly
-  AdjustedLikelihoodIfNoCopying         <- (1-priorCopy) * (1-priorCopy) * likelihoodIfNoCopying
-  
-  SumAdjustedLikeCopy <- AdjustedLikelihoodIfCopyingAll + 
-                           AdjustedLikelihoodIfCopyingHandleOnly + 
-                           AdjustedLikelihoodIfCopyingRodOnly
-  
-  PosteriorCopying <- SumAdjustedLikeCopy / (AdjustedLikelihoodIfNoCopying + SumAdjustedLikeCopy)
-  PosteriorNoCopying <- AdjustedLikelihoodIfNoCopying / (AdjustedLikelihoodIfNoCopying + SumAdjustedLikeCopy)
-  
-  if(Response == "Someone copied."){
-    return(PosteriorCopying)
-  } else {
-    return(PosteriorNoCopying)
-  }
 }
 ```
 
@@ -197,10 +163,10 @@ ModelISC = function(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoi
 ##likelihood function for mle()
 
 ```{r Full model likelihood Function Wrapper}
-CopyLlhFull = function(priorCopy){
+CopyLlhFull = function(priorCopy, errorRate){
   tempData = DatCopy2 %>%
     rowwise() %>%
-    mutate(pred = ModelFull(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoices, priorCopy, Result))
+    mutate(pred = ModelFull(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate))
   -sum(log(tempData$pred))
 }
 ```
@@ -209,9 +175,10 @@ CopyLlhFull = function(priorCopy){
 
 ```{r Full model mle}
 #cannot use 0 and 1 because it will result in (NaN)
-LwrsFull = c(0.000000001)
-UprsFull = c(0.999999999)
-InitsFull = list(priorCopy = mean(DatCopy2$Result == "Someone copied."))
+LwrsFull = c(0.000000001, .000001)
+UprsFull = c(0.999999999, .1)
+InitsFull = list(priorCopy = mean(DatCopy2$Response == "Someone copied."),
+                 errorRate = ((.000001+.1)/2))
 
 FitFull <- mle(CopyLlhFull, start = InitsFull, lower = LwrsFull, upper = UprsFull, method = 'L-BFGS-B')
 
@@ -227,11 +194,15 @@ summary(FitFull) #-2logLik for all data
 
 ```{r bootstrap sample function}
 xnew = function(){sample_n(DatCopy, nrow(DatCopy), replace=TRUE) %>% 
-    gather(condition, Result, -PID) %>%
-    separate(condition, c('Box', 'HandleSimilarity', 'RodSimilarity', 'HandleChoices', 'RodChoices'),',') %>%
-    mutate(HandleChoices = as.numeric(HandleChoices),
-           RodChoices = as.numeric(RodChoices)) %>%
-    filter(Result != "")
+    gather(condition, Response, -PID) %>%
+    separate(condition, c('Box', 'HandleSimilarity', 'RodSimilarity', 'NumHandleChoices', 'NumRodChoices'),',') %>%
+    mutate(NumHandleChoices = as.numeric(NumHandleChoices),
+           NumRodChoices = as.numeric(NumRodChoices),
+           Box = as.factor(Box),
+           HandleIsDiff = HandleSimilarity == 'Dif', # check that this actually is the right string
+           RodIsDiff = RodSimilarity == 'Dif',
+           JudgedCopied = Response == 'Someone copied.') %>%
+    filter(Response != "")
     } 
 ```
 
@@ -241,14 +212,15 @@ xnew = function(){sample_n(DatCopy, nrow(DatCopy), replace=TRUE) %>%
 #Because all of the below are using randomly generated samples, they have to be contained within the same function(/environment) otherwise they will be using different samples.
 
 ResampleBicsFull = function(){temp = xnew()
-TestLlhFull = function(priorCopy){
+TestLlhFull = function(priorCopy, errorRate){
   tempData = temp %>%
     rowwise() %>%
-    mutate(pred = ModelFull(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoices, priorCopy, Result))
+    mutate(pred = ModelFull(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate))
   -sum(log(tempData$pred))
 }
 InitsTestFull = list(priorCopy = mean((temp %>% 
-                                      select(Result)) == "Someone copied."))
+                                         select(Response)) == "Someone copied."), 
+                     errorRate = ((.000001+.1)/2))
 FitTestFull <- mle(TestLlhFull, start = InitsTestFull, lower = LwrsFull, upper = UprsFull, method = 'L-BFGS-B')
 return(((-2*logLik(FitTestFull)[1])+(1*nrow(temp))))
 }
@@ -272,10 +244,10 @@ FullDf <- data.frame(Model = 'Full.Model',
 ##ISC model likelihood function for mle()
 
 ```{r ISC model likelihood function wrapper}
-CopyLlhISC = function(priorCopy){
+CopyLlhISC = function(priorCopy, errorRate){
   tempData = DatCopy2 %>%
     rowwise() %>%
-    mutate(pred = ModelISC(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoices, priorCopy, Result))
+    mutate(pred = ModelISC(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate))
   -sum(log(tempData$pred))
 }
 ```
@@ -295,14 +267,15 @@ summary(FitISC)
 
 ```{r new ISC model BICs from samples}
 ResampleBicsISC = function(){temp = xnew()
-TestLlhISC = function(priorCopy){
+TestLlhISC = function(priorCopy, errorRate){
   tempData = temp %>%
     rowwise() %>%
-    mutate(pred = ModelISC(Box, HandleSimilarity, RodSimilarity, HandleChoices, RodChoices, priorCopy, Result))
+    mutate(pred = ModelISC(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate))
   -sum(log(tempData$pred))
 }
 InitsTestISC = list(priorCopy = mean((temp %>% 
-                                      select(Result)) == "Someone copied."))
+                                      select(Response)) == "Someone copied."), 
+                     errorRate = ((.000001+.1)/2))
 FitTestISC <- mle(TestLlhISC, start = InitsTestISC, lower = LwrsFull, upper = UprsFull, method = 'L-BFGS-B')
 return(((-2*logLik(FitTestISC)[1])+(1*nrow(temp))))
 }
@@ -326,10 +299,10 @@ ISCDf <- data.frame(Model = 'ISC.Model',
 ##likelihood function for mle()
 
 ```{r nChoice likelihood function wrapper}
-CopyLlhNChoice = function(priorCopy, nChoices){
+CopyLlhNChoice = function(priorCopy, nChoices, errorRate){
   tempData = DatCopy2 %>%
     rowwise() %>%
-    mutate(pred = ModelFull(Box, HandleSimilarity, RodSimilarity, nChoices, nChoices, priorCopy, Result))
+    mutate(pred = ModelFull(Box, HandleIsDiff, RodIsDiff, nChoices, nChoices, priorCopy, Response, errorRate))
   -sum(log(tempData$pred))
 }
 ```
@@ -337,10 +310,11 @@ CopyLlhNChoice = function(priorCopy, nChoices){
 ##Run mle() to find best prior, best number of options, and the likelihood
 
 ```{r nChoice model mle}
-LwrsNChoice = c(0.000000001, 1.000000001) #different values for nchoices
-UprsNChoice = c(0.999999999, Inf)
-InitsNChoice = list(priorCopy = mean(DatCopy2$Result == "Someone copied."),
-             nChoices = round(mean(c(DatCopy2$HandleChoices, DatCopy2$RodChoices))))
+LwrsNChoice = c(0.000000001, 1.000000001, .000001) #different values for nchoices
+UprsNChoice = c(0.999999999, Inf, .1)
+InitsNChoice = list(priorCopy = mean(DatCopy2$Response == "Someone copied."),
+             nChoices = round(mean(c(DatCopy2$NumHandleChoices, DatCopy2$NumRodChoices))),
+             errorRate = ((.000001+.1)/2))
 
 FitNChoice = mle(CopyLlhNChoice, start = InitsNChoice, lower = LwrsNChoice, upper = UprsNChoice, method = 'L-BFGS-B')
 
@@ -353,15 +327,16 @@ summary(FitNChoice)
 
 ```{r new nChoice model BICs from samples}
 ResampleBicsNChoice = function(){temp = xnew()
-TestLlhNChoice = function(priorCopy, nChoices){
+TestLlhNChoice = function(priorCopy, nChoices, errorRate){
   tempData = temp %>%
     rowwise() %>%
-    mutate(pred = ModelFull(Box, HandleSimilarity, RodSimilarity, nChoices, nChoices, priorCopy, Result))
+    mutate(pred = ModelFull(Box, HandleIsDiff, RodIsDiff, nChoices, nChoices, priorCopy, Response, errorRate))
   -sum(log(tempData$pred))
 }
 InitsTestNChoice = list(priorCopy = mean((temp %>% 
-                                              select(Result)) == "Someone copied."),
-                          nChoices = round(mean(c(temp$HandleChoices, temp$RodChoices))))
+                                            select(Response)) == "Someone copied."),
+                        nChoices = round(mean(c(temp$NumHandleChoices, temp$NumRodChoices))), 
+                        errorRate = ((.000001+.1)/2))
 FitTestNChoice <- mle(TestLlhNChoice, start = InitsTestNChoice, lower = LwrsNChoice, upper = UprsNChoice, method = 'L-BFGS-B')
 return(((-2*logLik(FitTestNChoice)[1])+(2*nrow(temp))))
 }
@@ -385,10 +360,10 @@ NChoiceDf <- data.frame(Model = 'nChoice.Model',
 ##likelihood function for mle()
 
 ```{r ISCnChoice model likelihood function wrapper}
-CopyLlhISCnChoice = function(priorCopy, nChoices){
+CopyLlhISCnChoice = function(priorCopy, nChoices, errorRate){
   tempData = DatCopy2 %>%
     rowwise() %>%
-    mutate(pred = ModelISC(Box, HandleSimilarity, RodSimilarity, nChoices, nChoices, priorCopy, Result))
+    mutate(pred = ModelISC(Box, HandleIsDiff, RodIsDiff, nChoices, nChoices, priorCopy, Response, errorRate))
   -sum(log(tempData$pred))
 }
 ```
@@ -410,15 +385,16 @@ summary(FitISCnChoice)
 
 ```{r new ISCnChoice model BICs from samples}
 ResampleBicsISCnChoice = function(){temp = xnew()
-TestLlhISCnChoice = function(priorCopy, nChoices){
+TestLlhISCnChoice = function(priorCopy, nChoices, errorRate){
   tempData = temp %>%
     rowwise() %>%
-    mutate(pred = ModelISC(Box, HandleSimilarity, RodSimilarity, nChoices, nChoices, priorCopy, Result))
+    mutate(pred = ModelISC(Box, HandleIsDiff, RodIsDiff, nChoices, nChoices, priorCopy, Response, errorRate))
   -sum(log(tempData$pred))
 }
 InitsTestISCnChoice = list(priorCopy = mean((temp %>% 
-                                              select(Result)) == "Someone copied."),
-                          nChoices = round(mean(c(temp$HandleChoices, temp$RodChoices))))
+                                               select(Response)) == "Someone copied."),
+                           nChoices = round(mean(c(temp$NumHandleChoices, temp$NumRodChoices))), 
+                           errorRate = ((.000001+.1)/2))
 FitTestISCnChoice <- mle(TestLlhISCnChoice, start = InitsTestISCnChoice, lower = LwrsNChoice, upper = UprsNChoice, method = 'L-BFGS-B')
 return(((-2*logLik(FitTestISCnChoice)[1])+(2*nrow(temp))))
 }
@@ -469,5 +445,4 @@ data.frame("Full Model" = (-2*logLik(FitFull)[1])+(1*nrow(DatCopy2)), "ISC Model
 
 ```
 
-test
 
