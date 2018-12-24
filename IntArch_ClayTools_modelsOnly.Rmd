@@ -115,10 +115,25 @@ ModelISC = function(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoice
 ModelIgnoresNumChoices = function(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate, nChoices){
  
   # Instead of taking into account the actual number of options, use a value that does not change/ is not sensitive to actual number of options (nChoice)
-  if(Box == 'Star'){
+  NumHandleChoices <- nChoices
+  if(Box == 'Cir'){
+    NumRodChoices <- nChoices
+  } else {
+    NumRodChoices <- 1
+  }
+  
+  ModelBase(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate)
+
+}
+```
+
+```{r ignores star constraint and numChoices model}
+ModelISCNumChoices = function(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate, nChoices){
+ 
+  # Instead of taking into account the actual number of options, use a value that does not change/ is not sensitive to actual number of options (nChoice)
     NumRodChoices <- nChoices
     NumHandleChoices <- nChoices
-  }
+  
   
   ModelBase(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate)
 
@@ -135,6 +150,9 @@ posteriorISCModel <- ModelISC(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, Nu
 posteriorISCModel
 
 posteriorIgnoresNumChoicesModel <- ModelIgnoresNumChoices(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate, nChoices)
+posteriorIgnoresNumChoicesModel
+
+posteriorISCNumChoicesModel <- ModelISCNumChoices(Box, HandleIsDiff, RodIsDiff, NumHandleChoices, NumRodChoices, priorCopy, Response, errorRate, nChoices)
 posteriorIgnoresNumChoicesModel
 
 ```

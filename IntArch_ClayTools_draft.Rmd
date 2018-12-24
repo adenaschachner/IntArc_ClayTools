@@ -416,9 +416,9 @@ ISCnChoiceDf <- data.frame(Model = 'ISCnChoice.Model',
 #Summarize MLE derived best parameters:
 
 ```{r summary table of best parameters}
-data.frame("Model" = c("Full", "ISC", "nChoice", "ISCnChoice"), "Best Prior" = c(round(coef(FitFull), 2), round(coef(FitISC), 2), round(coef(FitNChoice)[1], 2), round(coef(FitISCnChoice)[1], 2)), "Best nChoice" = c(NA,NA,round(coef(FitNChoice)[2], 2), round(coef(FitISCnChoice)[2], 2)))
+data.frame("Model" = c("Full", "ISC", "nChoice", "ISCnChoice"), "Best Prior" = c(round(coef(FitFull)[1], 2), round(coef(FitISC)[1], 2), round(coef(FitNChoice)[1], 2), round(coef(FitISCnChoice)[1], 2)), "Best Error Rate" = c(coef(FitFull)[2], coef(FitISC)[2], coef(FitNChoice)[3], coef(FitISCnChoice)[3]),"Best nChoice" = c(NA,NA,round(coef(FitNChoice)[2], 2), round(coef(FitISCnChoice)[2], 2)))
 
-dfs <- rbind(FullDf, ISCDf, nChoiceDf, ISCnChoiceDf) #combine summary of resampled data
+dfs <- rbind(FullDf, ISCDf, NChoiceDf, ISCnChoiceDf) #combine summary of resampled data
 ```
 
 #compare BICs from the different models
